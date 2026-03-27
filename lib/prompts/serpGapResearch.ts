@@ -1,4 +1,4 @@
-import { callGemini } from "../gemini";
+import { callLLM } from "../llm";
 
 const SYSTEM_PROMPT = `You are a senior SEO competitive analyst specializing in SERP (Search Engine Results Page) gap analysis.
 
@@ -50,7 +50,7 @@ ${JSON.stringify(keywordData.keyword_clusters, null, 2)}
 
 All Keywords: ${keywordData.all_keywords.join(", ")}`;
 
-  const result = await callGemini(SYSTEM_PROMPT, userMessage, { json: true });
+  const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: true });
   return result;
 }
 

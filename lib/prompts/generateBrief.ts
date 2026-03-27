@@ -1,4 +1,4 @@
-import { callGemini } from "../gemini";
+import { callLLM } from "../llm";
 
 const SYSTEM_PROMPT = `You are an expert SEO content strategist who creates detailed blog briefs (blueprints) before any content is written.
 
@@ -85,7 +85,7 @@ TRAFFIC PROJECTION:
 - Competition: ${trafficData.competition_level}
 - Target Audience Context: ${trafficData.traffic_summary}`;
 
-  const result = await callGemini(SYSTEM_PROMPT, userMessage, { json: true });
+  const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: true });
   return result;
 }
 

@@ -1,4 +1,4 @@
-import { callGemini } from "../gemini";
+import { callLLM } from "../llm";
 
 const SYSTEM_PROMPT = `You are an expert editor who makes AI-written content sound 100% human.
 Your goal is to reduce AI detection scores to near 0% while PRESERVING ALL SEO OPTIMIZATION exactly.
@@ -31,7 +31,7 @@ async function humanize(blogMarkdown: any) {
 
 ${blogMarkdown}`;
 
-  const result = await callGemini(SYSTEM_PROMPT, userMessage, { json: false });
+  const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: false });
   return result;
 }
 

@@ -1,4 +1,4 @@
-import { callGemini } from "../gemini";
+import { callLLM } from "../llm";
 
 const SYSTEM_PROMPT = `You are an SEO traffic analyst and search demand forecaster.
 
@@ -61,7 +61,7 @@ Competition Context (from SERP gap analysis):
 - Recommended angle: ${gapData.recommended_unique_angle}
 - Competition level hints: ${gapData.serp_analysis_summary}`;
 
-  const result = await callGemini(SYSTEM_PROMPT, userMessage, { json: true });
+  const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: true });
   return result;
 }
 
