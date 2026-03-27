@@ -1,4 +1,4 @@
-import { callGemini } from "../gemini";
+import { callLLM } from "../llm";
 
 const SYSTEM_PROMPT = `You are a professional SEO content writer who produces high-ranking blog posts.
 
@@ -60,7 +60,7 @@ CTA:
 
 Now write the complete blog post in Markdown.`;
 
-  const result = await callGemini(SYSTEM_PROMPT, userMessage, { json: false });
+  const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: false });
   return result;
 }
 

@@ -1,4 +1,4 @@
-import { callGemini } from "../gemini";
+import { callLLM } from "../llm";
 
 const SYSTEM_PROMPT = `You are an expert SEO keyword strategist with 10+ years of experience in organic search optimization.
 
@@ -36,7 +36,7 @@ Return ONLY valid JSON in this exact structure:
 async function analyzeIntent(seedKeyword: any) {
   const userMessage = `Analyze this seed keyword and generate a comprehensive keyword cluster:\n\nSeed Keyword: "${seedKeyword}"`;
 
-  const result = await callGemini(SYSTEM_PROMPT, userMessage, { json: true });
+  const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: true });
   return result;
 }
 

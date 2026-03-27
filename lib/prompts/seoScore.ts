@@ -1,4 +1,4 @@
-import { callGemini } from "../gemini";
+import { callLLM } from "../llm";
 
 const SYSTEM_PROMPT = `You are an expert SEO auditor who scores blog content against industry-standard SEO metrics.
 
@@ -88,7 +88,7 @@ BLOG BRIEF (for reference):
 BLOG CONTENT:
 ${blog}`;
 
-  const result = await callGemini(SYSTEM_PROMPT, userMessage, { json: true });
+  const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: true });
   return result;
 }
 
