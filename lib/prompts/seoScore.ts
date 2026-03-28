@@ -31,14 +31,10 @@ interface SEOScorecard {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Roughly count words in a markdown string
- * Strips markdown syntax before counting
- */
 function countWords(markdown: string): number {
   return markdown
     .replace(/#{1,6}\s/g, "")
-    .replace(/\*\*|__|\*|_|~~|`{1,3}/g, "")
+    .replace(/\*\*|__|\\*|_|~~|`{1,3}/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/\s+/g, " ")
@@ -47,211 +43,193 @@ function countWords(markdown: string): number {
     .filter(Boolean).length;
 }
 
-/**
- * Count keyword occurrences in markdown (case-insensitive)
- */
 function countKeywordOccurrences(markdown: string, keyword: string): number {
   const clean = markdown
     .replace(/#{1,6}\s/g, "")
-    .replace(/\*\*|__|\*|_|~~|`{1,3}/g, "")
+    .replace(/\*\*|__|\\*|_|~~|`{1,3}/g, "")
     .toLowerCase();
   const escaped = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const matches = clean.match(new RegExp(`\\b${escaped}\\b`, "g"));
   return matches?.length ?? 0;
 }
 
+function extractHeadings(markdown: string): { level: number; text: string }[] {
+  const headings: { level: number; text: string }[] = [];
+  const lines = markdown.split("\n");
+  for (const line of lines) {
+    const match = line.match(/^(#{1,6})\s+(.+)$/);
+    if (match) {
+      headings.push({ level: match[1].length, text: match[2].trim() });
+    }
+  }
+  return headings;
+}
+
+function extractInternalLinks(markdown: string): { anchor: string; url: string }[] {
+  const links: { anchor: string; url: string }[] = [];
+  const regex = /\[([^\]]+)\]\((\/[^)]*)\)/g;
+  let match;
+  while ((match = regex.exec(markdown)) !== null) {
+    links.push({ anchor: match[1], url: match[2] });
+  }
+  return links;
+}
+
+function extractMetaDescription(markdown: string): { text: string; charCount: number } | null {
+  const match = markdown.match(/<!--\s*meta:\s*(.*?)\s*-->/i);
+  if (match) {
+    const text = match[1].trim();
+    return { text, charCount: text.length };
+  }
+  return null;
+}
+
+function extractFAQQuestions(markdown: string): string[] {
+  const questions: string[] = [];
+  const faqSectionMatch = markdown.match(/##\s*(Frequently Asked Questions|FAQ)\s*\n([\s\S]*?)(?=\n##\s[^#]|\n#\s|$)/i);
+  if (faqSectionMatch) {
+    const faqContent = faqSectionMatch[2];
+    const questionMatches = faqContent.matchAll(/###\s+(.+)/g);
+    for (const qMatch of questionMatches) {
+      questions.push(qMatch[1].trim());
+    }
+  }
+  return questions;
+}
+
+function extractIntro(markdown: string): { text: string; wordCount: number } {
+  const lines = markdown.split("\n");
+  let foundH1 = false;
+  let introLines: string[] = [];
+  
+  for (const line of lines) {
+    if (line.match(/^#\s+/)) {
+      foundH1 = true;
+      continue;
+    }
+    if (foundH1) {
+      if (line.trim() === "") {
+        if (introLines.length > 0) break;
+        continue;
+      }
+      if (line.match(/^#{1,6}\s+/)) break;
+      introLines.push(line.trim());
+    }
+  }
+  
+  const text = introLines.join(" ");
+  const wc = text.split(/\s+/).filter(Boolean).length;
+  return { text, wordCount: wc };
+}
+
+function containsKeyword(text: string, keyword: string): boolean {
+  if (!keyword) return false;
+  const escaped = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+}
+
 // ─── System Prompt ────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a senior SEO auditor with expertise in technical SEO, 
-content quality analysis, and ranking factors. You score blog content with surgical 
-precision — no inflated scores, no vague feedback.
+const SYSTEM_PROMPT = `You are a senior SEO auditor. You score blog content fairly and accurately based on pre-calculated metrics provided to you.
 
-You will receive:
-1. A complete blog post in Markdown
-2. The original brief it was written from
-3. Pre-calculated metrics (word count, keyword density) for accuracy
-
-Your job is to audit the blog against 10 weighted SEO metrics and return an honest, 
-detailed scorecard.
+IMPORTANT: You will receive EXTENSIVE pre-calculated metrics. TRUST THEM — they are computed programmatically and are 100% accurate. Do NOT re-count or re-assess anything that has been pre-calculated. Base your scores directly on the provided data.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SCORING SYSTEM
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Score each metric 0-100. Be strict:
-- 90-100: Excellent — exceeds best practices
-- 70-89:  Good — meets best practices with minor issues
-- 50-69:  Warning — partially meets best practices, needs improvement
-- 0-49:   Fail — does not meet best practices, will hurt rankings
+Score each metric 0-100. Be fair — give credit where due:
+- 90-100: Excellent — meets or exceeds best practices
+- 75-89:  Good — meets best practices with minor issues
+- 60-74:  Acceptable — mostly meets best practices
+- 40-59:  Warning — needs improvement
+- 0-39:   Fail — does not meet best practices
 
-Status thresholds:
-- "pass": score >= 70
-- "warning": score 50-69
-- "fail": score < 50
-
-Overall score = weighted average of all 10 metrics.
-Overall grade: A (90+), B (80-89), C (70-79), D (60-69), F (<60)
+Status: "pass" >= 70, "warning" 50-69, "fail" < 50
+Overall score = weighted average. Grade: A (90+), B (80-89), C (70-79), D (60-69), F (<60)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-THE 10 METRICS — EXACT SCORING CRITERIA
+THE 10 METRICS — SCORE USING PRE-CALCULATED DATA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 1. KEYWORD DENSITY (weight: 15%)
-   Use the pre-calculated density provided — do not recalculate.
-   Scoring:
-   - 1.0–1.8%: 90-100 (ideal range)
-   - 0.8–0.9% or 1.9–2.2%: 70-89 (acceptable)
-   - 0.5–0.7% or 2.3–2.9%: 40-69 (warning — too sparse or borderline stuffing)
-   - <0.5%: 0-39 (fail — keyword barely present)
-   - >3.0%: 0-39 (fail — keyword stuffing, Google penalty risk)
-   Detail: State exact density % and occurrence count
+   Use the pre-calculated density.
+   - 1.0–1.8%: 90-100
+   - 0.7–0.9% or 1.9–2.5%: 75-89
+   - 0.5–0.6% or 2.6–3.0%: 55-74
+   - <0.5% or >3.0%: 0-54
 
-2. READABILITY SCORE (weight: 10%)
-   Assess Flesch-Kincaid grade level by analyzing:
-   - Average sentence length (count words per sentence in a sample of 10 sentences)
-   - Average syllables per word (estimate from vocabulary complexity)
-   - Use of passive voice (penalize heavily)
-   - Paragraph length (3-4 sentences ideal)
-   Scoring:
-   - Grade 7-9: 90-100 (ideal — accessible but not dumbed down)
-   - Grade 6 or 10: 75-89 (slightly too simple or complex)
-   - Grade 5 or 11-12: 50-74 (warning)
-   - Grade <5 or >12: 0-49 (fail)
-   Detail: Estimate actual grade level and explain why
+2. READABILITY (weight: 10%)
+   Assess writing quality:
+   - Varied sentences, contractions, conversational: 85-100
+   - Mostly readable, some stiff parts: 70-84
+   - Overly formal or too simple: 50-69
 
 3. HEADING STRUCTURE (weight: 10%)
-   Check ALL of the following:
-   - Single H1 present (the title)
-   - H2s present (minimum 5)
-   - H3s used where appropriate for sub-sections
-   - No heading level skipped (H1→H3 without H2 = fail)
-   - Primary keyword appears in at least 1 H2 naturally
-   - Headings are descriptive (not just "Introduction" or "Conclusion")
-   Scoring: -15 points for each violation. Start at 100.
-   Detail: List each heading and flag any violations
+   Use pre-calculated heading counts. Start at 95.
+   - H1 count != 1: -20
+   - H2 count < 5 (excluding FAQ/Conclusion): -10 per missing
+   - No H3s at all: -5
+   - Skip levels: -10
 
 4. AI DETECTION RISK (weight: 15%)
-   This is critical. Assess the writing for AI patterns:
-   
-   HIGH RISK signals (each adds 15-20% to AI score):
-   - Uniform sentence length throughout
-   - Phrases: "In today's world", "It is important to note", "Moreover", 
-     "Furthermore", "It is worth mentioning", "Delve into", "Leverage",
-     "Cutting-edge", "Robust", "Crucial", "Vital", "Transformative"
-   - Every paragraph exactly 3-4 sentences
-   - Overly balanced structure (pros always followed by cons, exactly)
-   - No personal opinions or strong stances
-   - No informal language or contractions
-   - Generic examples without specifics
-   
-   LOW RISK signals (each reduces AI score by 10-15%):
-   - Varied sentence lengths (mix of 5-word and 30-word sentences)
-   - Contractions used naturally (it's, you'll, don't)
-   - Strong opinions stated directly
-   - Specific numbers, examples, or case studies
-   - Rhetorical questions
-   - Sentence fragments used deliberately
-   - Informal asides (parenthetical remarks)
-   
-   Score as AI Detection Risk %:
-   - <20%: score 90-100 (passes — likely human)
-   - 20-35%: score 70-89 (acceptable — minor AI patterns)
-   - 35-55%: score 40-69 (warning — clearly AI-assisted)
-   - >55%: score 0-39 (fail — will be flagged by detectors)
-   
-   Detail: List specific phrases or patterns that raised/lowered the score
+   Assess writing style:
+   - Varied lengths + contractions + opinions + informal: 85-100
+   - Mostly natural, some uniform parts: 70-84
+   - Clearly AI throughout: below 60
 
 5. SNIPPET READINESS (weight: 10%)
-   Check the intro paragraph:
-   - Is it 40-60 words? (±5 words tolerance)
-   - Does the first sentence directly answer the main query?
-   - Is it written as a definition or direct answer (not a question)?
-   - Does it avoid starting with "I", "We", or the blog title?
-   - Could it stand alone as a complete answer?
-   Scoring:
-   - All criteria met: 90-100
-   - 4/5 criteria met: 70-89
-   - 3/5 criteria met: 50-69
-   - <3/5 criteria met: 0-49
-   Detail: Quote the actual intro and explain each criterion pass/fail
+   Use pre-calculated intro word count.
+   - 35-65 words + contains keyword + answers query: 90-100
+   - Minor deviation: 75-89
+   - Major issues: below 70
 
-6. META DESCRIPTION QUALITY (weight: 5%)
-   Check for <!-- meta: ... --> comment at top of blog.
-   Verify ALL of:
-   - Present in the blog
-   - 150-160 characters (count exactly)
-   - Primary keyword in first 60 characters
-   - Ends with action-oriented CTA
-   - Accurately describes the article content
-   - No truncation (doesn't end mid-sentence)
-   Scoring: -20 points per failed criterion. Start at 100.
-   Detail: Quote the meta description and check each criterion
+6. META DESCRIPTION (weight: 5%)
+   Use pre-calculated meta data.
+   - Present + 140-165 chars + has keyword: 90-100
+   - Minor issues (slightly out of range): 75-89
+   - Missing: 0
 
 7. INTERNAL LINKING (weight: 10%)
-   Count all internal link suggestions in the blog.
-   Check:
-   - Minimum 3 internal links present
-   - Anchor text is descriptive (not "click here" or "read more")
-   - Links placed contextually (relevant to surrounding content)
-   - Not clustered in one section
-   Scoring:
-   - 4-5 links, all contextual: 90-100
-   - 3 links, all contextual: 75-89
-   - 2 links or poor anchor text: 50-74
-   - 0-1 links: 0-49
-   Detail: List each link anchor text and placement
+   Use pre-calculated link count.
+   - 4+ descriptive links: 90-100
+   - 3 links: 75-89
+   - 2 links: 55-74
+   - 0-1 links: 0-54
 
-8. WORD COUNT COMPLIANCE (weight: 5%)
-   Use the pre-calculated word count provided.
-   Compare to brief's target word count.
-   Scoring:
-   - Within ±5% of target: 95-100
-   - Within ±10% of target: 80-94
-   - Within ±20% of target: 60-79
-   - More than ±20% off target: 0-59
-   Detail: State actual vs target and percentage difference
+8. WORD COUNT (weight: 5%)
+   Use pre-calculated difference.
+   - Within ±10%: 90-100
+   - Within ±15%: 75-89
+   - Within ±25%: 55-74
+   - Beyond ±25%: 0-54
 
 9. KEYWORD PLACEMENT (weight: 10%)
-   Check primary keyword appears in ALL of:
-   - Title/H1 ← most critical
-   - First 100 words of body content
-   - At least one H2 heading
-   - Conclusion section
-   - Meta description
-   Scoring: Each placement = 20 points. Max 100.
-   Detail: Confirm or deny each placement with exact quote
+   Use pre-calculated placement score directly.
+   Score = (placements found / 5) × 100
+   The pre-calculated score is final for this metric.
 
-10. GEO OPTIMIZATION (weight: 10%)
-    Check ALL of:
-    - FAQ section present with minimum 4 questions
-    - FAQ questions are in natural language (voice search friendly)
-    - FAQ answers are concise (40-60 words each — schema markup friendly)
-    - Regional/local context addressed if keyword warrants it
-    - Structured data friendly (Q&A format clean)
-    Scoring:
-    - All criteria met: 90-100
-    - FAQ present but short (2-3 questions): 60-79
-    - No FAQ section: 0-39
-    Detail: List FAQ questions and assess quality
+10. FAQ / GEO (weight: 10%)
+    Use pre-calculated FAQ count.
+    - 5+ questions: 90-100
+    - 4 questions: 80-89
+    - 2-3 questions: 60-79
+    - 0-1 questions: 0-54
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PUBLISH VERDICT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-After scoring, determine if the blog is publish-ready:
-- publish_ready: true ONLY if overall_score >= 75 AND no metric scores below 40
-- If any metric scores below 40: publish_ready = false (critical failure)
-- publish_verdict: one sentence explaining the decision
+- publish_ready: true if overall_score >= 75 AND no metric below 40
+- publish_verdict: one sentence
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CRITICAL FAILURES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-List any metrics that scored below 40 as critical_failures.
-These must be fixed before publishing.
-If none, return empty array.
+List metrics scoring below 40. Empty array if none.
 
-Return ONLY valid JSON in this exact structure:
+Return ONLY valid JSON:
 {
   "overall_score": 85,
   "overall_grade": "B",
@@ -266,39 +244,26 @@ Return ONLY valid JSON in this exact structure:
       "target": "1.0–1.8%",
       "status": "pass",
       "weight": 15,
-      "details": "Primary keyword found 30 times in 2150 words = 1.4% density. Ideal range.",
-      "improvement": "No changes needed — maintain this density in any edits"
+      "details": "Density is 1.4% — ideal range.",
+      "improvement": "No changes needed"
     }
   ],
-  "strengths": [
-    "Specific strength with evidence from the blog"
-  ],
-  "improvements": [
-    "Specific, actionable improvement with exact location in blog"
-  ],
-  "critical_failures": [
-    "Metric name: specific reason it failed and exactly how to fix it"
-  ],
+  "strengths": ["Specific strength"],
+  "improvements": ["Specific improvement"],
+  "critical_failures": [],
   "publish_ready": true,
-  "publish_verdict": "One sentence explaining publish decision",
-  "summary": "2-3 sentence overall assessment of SEO quality and ranking potential"
+  "publish_verdict": "Publish decision",
+  "summary": "2-3 sentence assessment"
 }`;
 
 // ─── Main Function ─────────────────────────────────────────────────────────────
 
-/**
- * Stage 8: Score the humanized blog against 10 SEO metrics
- * @param blog - The humanized blog Markdown from humanize()
- * @param brief - The original brief from createBrief()
- * @returns Detailed SEO scorecard JSON
- */
 async function scoreSEO(
   blog: string,
   brief: BlogBrief
 ): Promise<SEOScorecard> {
 
-  // Pre-calculate metrics locally for accuracy
-  // This prevents the LLM from guessing word count or keyword density
+  // Pre-calculate ALL metrics locally for accuracy
   const wordCount = countWords(blog);
   const primaryKeyword = brief.primary_keywords?.[0] ?? "";
   const keywordCount = primaryKeyword
@@ -311,38 +276,65 @@ async function scoreSEO(
   const wordCountDiff = brief.target_word_count
     ? (((wordCount - brief.target_word_count) / brief.target_word_count) * 100).toFixed(1)
     : "unknown";
-  const internalLinksExpected = brief.internal_links?.length ?? 0;
 
-  const userMessage = `Score this blog post against the 10 SEO metrics.
-Be strict and precise — do not inflate scores.
+  // Structural metrics
+  const headings = extractHeadings(blog);
+  const h1s = headings.filter(h => h.level === 1);
+  const h2s = headings.filter(h => h.level === 2);
+  const h3s = headings.filter(h => h.level === 3);
+  const internalLinks = extractInternalLinks(blog);
+  const metaDesc = extractMetaDescription(blog);
+  const faqQuestions = extractFAQQuestions(blog);
+  const intro = extractIntro(blog);
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PRE-CALCULATED METRICS (use these — do not recalculate)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Keyword placement
+  const kwInTitle = h1s.length > 0 && containsKeyword(h1s[0].text, primaryKeyword);
+  const kwInIntro = containsKeyword(intro.text, primaryKeyword);
+  const kwInH2 = h2s.some(h => containsKeyword(h.text, primaryKeyword));
+  const kwInMeta = metaDesc ? containsKeyword(metaDesc.text, primaryKeyword) : false;
+  const conclusionH2 = h2s.find(h => /conclusion|final|wrap|summary|bottom line/i.test(h.text));
+  const blogLower = blog.toLowerCase();
+  const concIdx = conclusionH2
+    ? blogLower.lastIndexOf(conclusionH2.text.toLowerCase())
+    : blogLower.lastIndexOf("## ");
+  const conclusionText = concIdx > 0 ? blog.substring(concIdx) : "";
+  const kwInConclusion = containsKeyword(conclusionText, primaryKeyword);
+  const placementCount = [kwInTitle, kwInIntro, kwInH2, kwInConclusion, kwInMeta].filter(Boolean).length;
 
-Total Word Count: ${wordCount} words
-Target Word Count: ${brief.target_word_count} words
-Word Count Difference: ${wordCountDiff}% ${Number(wordCountDiff) > 0 ? "over" : "under"} target
-Primary Keyword: "${primaryKeyword}"
-Keyword Occurrences: ${keywordCount} times
-Keyword Density: ${keywordDensity}%
-Estimated Read Time: ${readTime}
-Expected Internal Links: ${internalLinksExpected}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ORIGINAL BRIEF (for comparison)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Title: ${brief.title}
-Target Word Count: ${brief.target_word_count}
-Primary Keywords: ${brief.primary_keywords?.join(", ")}
-Secondary Keywords: ${brief.secondary_keywords?.join(", ")}
-Expected Internal Links: ${internalLinksExpected}
-Expected FAQ Questions: ${brief.faq_section?.length ?? 0}
-CTA Text: ${brief.cta?.cta_text}
+  const userMessage = `Score this blog using the pre-calculated metrics below. TRUST these numbers — they are programmatically computed and accurate. Do NOT re-count anything yourself.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-BLOG CONTENT TO SCORE
+PRE-CALCULATED METRICS (100% ACCURATE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WORD COUNT:
+- Total: ${wordCount} words | Target: ${brief.target_word_count} words
+- Difference: ${wordCountDiff}% ${Number(wordCountDiff) > 0 ? "over" : "under"} target
+
+KEYWORD:
+- Primary: "${primaryKeyword}" | Occurrences: ${keywordCount} | Density: ${keywordDensity}%
+
+HEADINGS:
+- H1 (${h1s.length}): ${h1s.map(h => `"${h.text}"`).join(", ") || "NONE"}
+- H2 (${h2s.length}): ${h2s.map(h => `"${h.text}"`).join(", ") || "NONE"}
+- H3 (${h3s.length}): ${h3s.map(h => `"${h.text}"`).join(", ") || "NONE"}
+
+INTERNAL LINKS (${internalLinks.length}):
+${internalLinks.map(l => `- [${l.anchor}](${l.url})`).join("\n") || "- NONE"}
+
+META DESCRIPTION:
+- Present: ${metaDesc ? "YES" : "NO"} | Chars: ${metaDesc?.charCount ?? 0} | Text: "${metaDesc?.text ?? "MISSING"}"
+
+FAQ QUESTIONS (${faqQuestions.length}):
+${faqQuestions.map((q, i) => `- ${i + 1}. ${q}`).join("\n") || "- NONE"}
+
+INTRO: ${intro.wordCount} words | Keyword present: ${kwInIntro ? "YES" : "NO"}
+
+KEYWORD PLACEMENT (${placementCount}/5 = score ${placementCount * 20}):
+- Title: ${kwInTitle ? "✅" : "❌"} | Intro: ${kwInIntro ? "✅" : "❌"} | H2: ${kwInH2 ? "✅" : "❌"} | Conclusion: ${kwInConclusion ? "✅" : "❌"} | Meta: ${kwInMeta ? "✅" : "❌"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BLOG CONTENT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${blog}`;
