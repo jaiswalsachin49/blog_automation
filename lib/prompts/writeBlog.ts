@@ -15,11 +15,11 @@ A. META DESCRIPTION (5% of score):
    - Count your characters carefully — too short or too long = fail
 
 B. KEYWORD DENSITY (15% of score):
-   - Target density: 1.0-1.8% (sweet spot: ~1.3%)
-   - For a 2000-word article, use the primary keyword 10-15 times naturally
-   - For a 2500-word article, use it 12-18 times
-   - Spread mentions evenly — don't cluster them in one section
-   - Also weave in secondary keywords and synonyms throughout
+   - Target density: 1.0-1.8% (sweet spot: ~1.2%)
+   - RULE OF THUMB: Use the primary keyword exactly ONE TIME for every ~80-100 words.
+   - For example: If you write 1000 words, use it 12 times. If you write 2000 words, use it 24 times.
+   - Let the keyword breathe. Rely heavily on SYNONYMS for the rest of the text.
+   - Also weave in secondary keywords and synonyms throughout.
 
 C. KEYWORD PLACEMENT (10% of score — 5 mandatory positions):
    - ✅ In the # H1 title
@@ -115,7 +115,7 @@ async function writeBlog(brief: any, keywordData: any): Promise<string> {
 CRITICAL REQUIREMENTS (YOUR OUTPUT WILL BE SCORED ON THESE — aim for 90+ overall):
 1. Start with <!-- meta: [EXACTLY 150-160 characters, primary keyword in first 60 chars, ends with CTA] -->
 2. Write AT LEAST ${brief.target_word_count || 2000} words. Write 4-5 paragraphs per H2 section.
-3. Use "${primaryKeyword}" approximately ${targetKeywordCount} times total across the article (target ~1.3% density). Spread evenly — don't cluster.
+3. Use "${primaryKeyword}" exactly ONCE for every ~100 words you actually write (target ~1.2% density). If you write 1000 words, use it 12 times. Spread evenly.
 4. Include EXACTLY 4-5 internal links as [descriptive anchor text](/). Spread across 3+ different sections.
 5. Include FAQ section titled "## Frequently Asked Questions" with EXACTLY 5 questions (### heading each), answers 40-60 words each.
 6. MANDATORY keyword placements — "${primaryKeyword}" MUST appear in ALL 5: H1 title, first 100 words, 2+ H2 headings, conclusion, and meta description.
