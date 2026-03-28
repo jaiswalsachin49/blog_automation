@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
       await writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
     } catch (err) {
       console.error("Failed to write to SSE stream", err);
+      throw new Error("Stream closed");
     }
   };
 
@@ -95,35 +96,53 @@ export async function POST(req: NextRequest) {
         duration: Date.now() - startTime,
       });
 
-      // Stage 5
-      await sendSSE('stage-start', { stage: 'write', index: 4 });
-      const rawBlog = await writeBlog(brief);
-      await sendSSE('stage-complete', {
-        stage: 'write',
-        index: 4,
-        data: { preview: rawBlog.substring(0, 300) + '...' },
-        duration: Date.now() - startTime,
-      });
+      // Stage 5-7 Loop
+      let attempt = 1;
+      const MAX_RETRIES = 3;
+      let rawBlog = '';
+      let humanizedBlog = '';
+      let scorecard: any = null;
 
-      // Stage 6
-      await sendSSE('stage-start', { stage: 'humanize', index: 5 });
-      const humanizedBlog = await humanize(rawBlog);
-      await sendSSE('stage-complete', {
-        stage: 'humanize',
-        index: 5,
-        data: { preview: humanizedBlog.substring(0, 300) + '...' },
-        duration: Date.now() - startTime,
-      });
+      while (attempt <= MAX_RETRIES) {
+        // Stage 5
+        await sendSSE('stage-start', { stage: 'write', index: 4 });
+        rawBlog = await writeBlog(brief, keywordData);
+        await sendSSE('stage-complete', {
+          stage: 'write',
+          index: 4,
+          data: { preview: rawBlog.substring(0, 300) + '...' },
+          duration: Date.now() - startTime,
+        });
 
-      // Stage 7
-      await sendSSE('stage-start', { stage: 'score', index: 6 });
-      const scorecard = await scoreSEO(humanizedBlog, brief);
-      await sendSSE('stage-complete', {
-        stage: 'score',
-        index: 6,
-        data: scorecard,
-        duration: Date.now() - startTime,
-      });
+        // Stage 6
+        await sendSSE('stage-start', { stage: 'humanize', index: 5 });
+        humanizedBlog = await humanize(rawBlog);
+        await sendSSE('stage-complete', {
+          stage: 'humanize',
+          index: 5,
+          data: { preview: humanizedBlog.substring(0, 300) + '...' },
+          duration: Date.now() - startTime,
+        });
+
+        // Stage 7
+        await sendSSE('stage-start', { stage: 'score', index: 6 });
+        scorecard = await scoreSEO(humanizedBlog, brief);
+        await sendSSE('stage-complete', {
+          stage: 'score',
+          index: 6,
+          data: scorecard,
+          duration: Date.now() - startTime,
+        });
+
+        if (scorecard.publish_ready && scorecard.overall_score >= 75) {
+          break;
+        } else if (attempt < MAX_RETRIES) {
+          await sendSSE('retry', { message: `Score too low (${scorecard.overall_score}). Regenerating...`, attempt });
+          attempt++;
+        } else {
+          break;
+        }
+      }
 
       // Final Output
       await sendSSE('complete', {
@@ -138,13 +157,21 @@ export async function POST(req: NextRequest) {
 
     } catch (error: any) {
       console.error('Pipeline error:', error);
-      await sendSSE('error', {
-        message: error.message || 'An unexpected error occurred during generation',
-        stage: 'unknown',
-        duration: Date.now() - startTime,
-      });
+      if (error.message !== 'Stream closed') {
+        try {
+          await sendSSE('error', {
+            message: error.message || 'An unexpected error occurred during generation',
+            stage: 'unknown',
+            duration: Date.now() - startTime,
+          });
+        } catch (e) {}
+      }
     } finally {
-      await writer.close();
+      try {
+        await writer.close();
+      } catch (e) {
+        // Stream might already be closed or aborted, which is fine
+      }
     }
   })();
 
