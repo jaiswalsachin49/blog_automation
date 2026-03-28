@@ -117,14 +117,32 @@ export async function POST(req: NextRequest) {
         duration: Date.now() - startTime,
       });
 
-      // Stage 7 & Enhancement Loop
-      let attempt = 1;
-      const MAX_RETRIES = 3;
-      let currentBlog = humanizedBlog;
-      let scorecard: any = null;
+      // Stage 7 (Score)
+      await sendSSE('stage-start', { stage: 'score', index: 6 });
+      let scorecard = await scoreSEO(humanizedBlog, brief);
+      await sendSSE('stage-complete', {
+        stage: 'score',
+        index: 6,
+        data: scorecard,
+        duration: Date.now() - startTime,
+      });
 
-      while (attempt <= MAX_RETRIES) {
-        // Stage 7
+      // Targeted Repair Loop (1 pass only)
+      let currentBlog = humanizedBlog;
+      
+      if (scorecard.overall_score < 85 || !scorecard.publish_ready) {
+        await sendSSE('retry', { message: `Score too low (${scorecard.overall_score}). Running targeted repair based on scorecard...`, attempt: 1 });
+        
+        await sendSSE('stage-start', { stage: 'write', index: 4 });
+        currentBlog = await enhanceBlog(currentBlog, scorecard, brief);
+        await sendSSE('stage-complete', {
+          stage: 'write',
+          index: 4,
+          data: { preview: "Applied focused SEO enhancements..." },
+          duration: Date.now() - startTime,
+        });
+
+        // Re-score
         await sendSSE('stage-start', { stage: 'score', index: 6 });
         scorecard = await scoreSEO(currentBlog, brief);
         await sendSSE('stage-complete', {
@@ -133,34 +151,6 @@ export async function POST(req: NextRequest) {
           data: scorecard,
           duration: Date.now() - startTime,
         });
-
-        if (scorecard.publish_ready && scorecard.overall_score >= 75) {
-          break;
-        } else if (attempt < MAX_RETRIES) {
-          await sendSSE('retry', { message: `Score too low (${scorecard.overall_score}). Enhancing blog...`, attempt });
-          
-          // Enhancement Pass (re-use UI events to show progress)
-          await sendSSE('stage-start', { stage: 'write', index: 4 });
-          currentBlog = await enhanceBlog(currentBlog, scorecard, brief);
-          await sendSSE('stage-complete', {
-            stage: 'write',
-            index: 4,
-            data: { preview: "Applying SEO scorecard enhancements..." },
-            duration: Date.now() - startTime,
-          });
-
-          await sendSSE('stage-start', { stage: 'humanize', index: 5 });
-          await sendSSE('stage-complete', {
-            stage: 'humanize',
-            index: 5,
-            data: { preview: currentBlog.substring(0, 300) + '...' },
-            duration: Date.now() - startTime,
-          });
-
-          attempt++;
-        } else {
-          break;
-        }
       }
 
       // Final Output
