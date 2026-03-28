@@ -6,6 +6,7 @@ import { createBrief } from '@/lib/prompts/generateBrief';
 import { writeBlog } from '@/lib/prompts/writeBlog';
 import { humanize } from '@/lib/prompts/humanize';
 import { scoreSEO } from '@/lib/prompts/seoScore';
+import { enhanceBlog } from '@/lib/prompts/enhanceBlog';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -96,37 +97,36 @@ export async function POST(req: NextRequest) {
         duration: Date.now() - startTime,
       });
 
-      // Stage 5-7 Loop
+      // Stage 5 (Initial Write)
+      await sendSSE('stage-start', { stage: 'write', index: 4 });
+      let rawBlog = await writeBlog(brief, keywordData);
+      await sendSSE('stage-complete', {
+        stage: 'write',
+        index: 4,
+        data: { preview: rawBlog.substring(0, 300) + '...' },
+        duration: Date.now() - startTime,
+      });
+
+      // Stage 6 (Initial Humanize)
+      await sendSSE('stage-start', { stage: 'humanize', index: 5 });
+      let humanizedBlog = await humanize(rawBlog);
+      await sendSSE('stage-complete', {
+        stage: 'humanize',
+        index: 5,
+        data: { preview: humanizedBlog.substring(0, 300) + '...' },
+        duration: Date.now() - startTime,
+      });
+
+      // Stage 7 & Enhancement Loop
       let attempt = 1;
       const MAX_RETRIES = 3;
-      let rawBlog = '';
-      let humanizedBlog = '';
+      let currentBlog = humanizedBlog;
       let scorecard: any = null;
 
       while (attempt <= MAX_RETRIES) {
-        // Stage 5
-        await sendSSE('stage-start', { stage: 'write', index: 4 });
-        rawBlog = await writeBlog(brief, keywordData);
-        await sendSSE('stage-complete', {
-          stage: 'write',
-          index: 4,
-          data: { preview: rawBlog.substring(0, 300) + '...' },
-          duration: Date.now() - startTime,
-        });
-
-        // Stage 6
-        await sendSSE('stage-start', { stage: 'humanize', index: 5 });
-        humanizedBlog = await humanize(rawBlog);
-        await sendSSE('stage-complete', {
-          stage: 'humanize',
-          index: 5,
-          data: { preview: humanizedBlog.substring(0, 300) + '...' },
-          duration: Date.now() - startTime,
-        });
-
         // Stage 7
         await sendSSE('stage-start', { stage: 'score', index: 6 });
-        scorecard = await scoreSEO(humanizedBlog, brief);
+        scorecard = await scoreSEO(currentBlog, brief);
         await sendSSE('stage-complete', {
           stage: 'score',
           index: 6,
@@ -137,7 +137,26 @@ export async function POST(req: NextRequest) {
         if (scorecard.publish_ready && scorecard.overall_score >= 75) {
           break;
         } else if (attempt < MAX_RETRIES) {
-          await sendSSE('retry', { message: `Score too low (${scorecard.overall_score}). Regenerating...`, attempt });
+          await sendSSE('retry', { message: `Score too low (${scorecard.overall_score}). Enhancing blog...`, attempt });
+          
+          // Enhancement Pass (re-use UI events to show progress)
+          await sendSSE('stage-start', { stage: 'write', index: 4 });
+          currentBlog = await enhanceBlog(currentBlog, scorecard, brief);
+          await sendSSE('stage-complete', {
+            stage: 'write',
+            index: 4,
+            data: { preview: "Applying SEO scorecard enhancements..." },
+            duration: Date.now() - startTime,
+          });
+
+          await sendSSE('stage-start', { stage: 'humanize', index: 5 });
+          await sendSSE('stage-complete', {
+            stage: 'humanize',
+            index: 5,
+            data: { preview: currentBlog.substring(0, 300) + '...' },
+            duration: Date.now() - startTime,
+          });
+
           attempt++;
         } else {
           break;
@@ -146,7 +165,7 @@ export async function POST(req: NextRequest) {
 
       // Final Output
       await sendSSE('complete', {
-        blog: humanizedBlog,
+        blog: currentBlog,
         scorecard,
         brief,
         keywordData,
