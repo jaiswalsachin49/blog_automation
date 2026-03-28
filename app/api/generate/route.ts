@@ -6,7 +6,6 @@ import { createBrief } from '@/lib/prompts/generateBrief';
 import { writeBlog } from '@/lib/prompts/writeBlog';
 import { humanize } from '@/lib/prompts/humanize';
 import { scoreSEO } from '@/lib/prompts/seoScore';
-import { enhanceBlog } from '@/lib/prompts/enhanceBlog';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -97,9 +96,9 @@ export async function POST(req: NextRequest) {
         duration: Date.now() - startTime,
       });
 
-      // Stage 5 (Initial Write)
+      // Stage 5 (Write)
       await sendSSE('stage-start', { stage: 'write', index: 4 });
-      let rawBlog = await writeBlog(brief, keywordData);
+      const rawBlog = await writeBlog(brief, keywordData);
       await sendSSE('stage-complete', {
         stage: 'write',
         index: 4,
@@ -107,9 +106,9 @@ export async function POST(req: NextRequest) {
         duration: Date.now() - startTime,
       });
 
-      // Stage 6 (Initial Humanize)
+      // Stage 6 (Humanize)
       await sendSSE('stage-start', { stage: 'humanize', index: 5 });
-      let humanizedBlog = await humanize(rawBlog);
+      const humanizedBlog = await humanize(rawBlog);
       await sendSSE('stage-complete', {
         stage: 'humanize',
         index: 5,
@@ -117,9 +116,9 @@ export async function POST(req: NextRequest) {
         duration: Date.now() - startTime,
       });
 
-      // Stage 7 (Score)
+      // Stage 7 (SEO Score)
       await sendSSE('stage-start', { stage: 'score', index: 6 });
-      let scorecard = await scoreSEO(humanizedBlog, brief);
+      const scorecard = await scoreSEO(humanizedBlog, brief);
       await sendSSE('stage-complete', {
         stage: 'score',
         index: 6,
@@ -127,35 +126,9 @@ export async function POST(req: NextRequest) {
         duration: Date.now() - startTime,
       });
 
-      // Targeted Repair Loop (1 pass only)
-      let currentBlog = humanizedBlog;
-      
-      if (scorecard.overall_score < 85 || !scorecard.publish_ready) {
-        await sendSSE('retry', { message: `Score too low (${scorecard.overall_score}). Running targeted repair based on scorecard...`, attempt: 1 });
-        
-        await sendSSE('stage-start', { stage: 'write', index: 4 });
-        currentBlog = await enhanceBlog(currentBlog, scorecard, brief);
-        await sendSSE('stage-complete', {
-          stage: 'write',
-          index: 4,
-          data: { preview: "Applied focused SEO enhancements..." },
-          duration: Date.now() - startTime,
-        });
-
-        // Re-score
-        await sendSSE('stage-start', { stage: 'score', index: 6 });
-        scorecard = await scoreSEO(currentBlog, brief);
-        await sendSSE('stage-complete', {
-          stage: 'score',
-          index: 6,
-          data: scorecard,
-          duration: Date.now() - startTime,
-        });
-      }
-
       // Final Output
       await sendSSE('complete', {
-        blog: currentBlog,
+        blog: humanizedBlog,
         scorecard,
         brief,
         keywordData,
