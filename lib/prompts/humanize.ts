@@ -69,8 +69,8 @@ STRICT SEO PRESERVATION (DO NOT TOUCH THESE)
 
 KEYWORD PROTECTION:
 - Keep the primary keyword in the exact same positions (title, intro, H2s, conclusion, meta)
-- If the keyword appears too frequently (>8 times), reduce it by replacing some instances with pronouns ("it", "this approach", "the method") or natural synonyms
-- Do NOT add extra keyword mentions
+- PRESERVE the exact frequency of the primary keyword from the input blog. Do NOT reduce the number of mentions, as it is carefully calibrated for a 1.3% SEO density.
+- Do NOT add extra keyword mentions, just keep the existing ones unchanged.
 
 LENGTH RULE (CRITICAL):
 - Output MUST be at least as long as the input. Never summarize, compress, or merge paragraphs.
