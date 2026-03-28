@@ -1,74 +1,58 @@
 import Groq from "groq-sdk";
-import { callGemini } from "./gemini";
 
-/**
- * Groq rate limits are PER MODEL. If llama-3.3-70b is exhausted,
- * mixtral-8x7b or llama-3.1-8b might still have fresh quota.
- */
-const GROQ_MODELS = [
-  "llama-3.3-70b-versatile",
-  "llama-3.1-8b-instant",
-];
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 export async function callLLM(
   systemPrompt: string,
   userMessage: string,
   options: { json?: boolean } = {}
-) {
+): Promise<any> {
   const { json = false } = options;
-  const errors: string[] = [];
 
-  // ── Step 1: Try Groq with multiple models ─────────────────────────────
-  const groqKey = process.env.GROQ_API_KEY;
-  if (groqKey) {
-    const groq = new Groq({ apiKey: groqKey });
+  // Force only the best available Groq model
+  // Never fall back to 8b — it ignores prompt instructions
+  const model = "llama-3.3-70b-versatile";
 
-    for (const model of GROQ_MODELS) {
-      try {
-        console.log(`[LLM] Trying Groq model: ${model}`);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      console.log(`[LLM] Calling ${model} (attempt ${attempt}/3)`);
 
-        const completion = await groq.chat.completions.create({
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userMessage },
-          ],
-          model,
-          temperature: 0.7,
-          ...(json ? { max_completion_tokens: 2000 } : { max_completion_tokens: 8000 }),
-          response_format: json ? { type: "json_object" } : { type: "text" },
-        });
+      const completion = await groq.chat.completions.create({
+        model,
+        temperature: 0.3, // Lower temp = more instruction-following
+        max_completion_tokens: json ? 4000 : 12000,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage }
+        ],
+        response_format: json ? { type: "json_object" } : { type: "text" },
+      });
 
-        const text = completion.choices[0]?.message?.content || "";
+      const text = completion.choices[0]?.message?.content ?? "";
+      if (!text) throw new Error("Empty response from model");
 
-        if (json) {
-          let cleaned = text.trim();
-          if (cleaned.startsWith("\`\`\`")) {
-            cleaned = cleaned.replace(/^\`\`\`(?:json)?\n?/, "").replace(/\n?\`\`\`$/, "");
-          }
-          return JSON.parse(cleaned);
-        }
-
-        return text;
-      } catch (error: any) {
-        const msg = error.message?.substring(0, 100) || "Unknown error";
-        const is429 = error.status === 429 || msg.includes("429");
-        console.warn(`[LLM] Groq ${model}: ${is429 ? "RATE LIMITED" : msg}`);
-        errors.push(`Groq/${model}: ${is429 ? "rate limited" : msg}`);
-        // Try next model
+      if (json) {
+        const cleaned = text
+          .replace(/^```(?:json)?\n?/, "")
+          .replace(/\n?```$/, "")
+          .trim();
+        return JSON.parse(cleaned);
       }
+
+      return text;
+
+    } catch (err: any) {
+      const is429 = err.status === 429 || err.message?.includes("429");
+      console.warn(`[LLM] Attempt ${attempt} failed: ${is429 ? "RATE LIMITED" : err.message?.substring(0, 80)}`);
+
+      if (is429 && attempt < 3) {
+        const wait = attempt * 8000;
+        console.log(`[LLM] Waiting ${wait / 1000}s...`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+
+      if (attempt === 3) throw err;
     }
   }
-
-  // ── Step 2: Fallback to Gemini ─────────────────────────────────────────
-  try {
-    console.log("[LLM] All Groq models exhausted. Trying Gemini...");
-    return await callGemini(systemPrompt, userMessage, { json });
-  } catch (geminiError: any) {
-    errors.push(`Gemini: ${geminiError.message?.substring(0, 100)}`);
-  }
-
-  // ── Step 3: All failed ─────────────────────────────────────────────────
-  throw new Error(
-    `All LLM providers failed:\n${errors.map((e) => `  • ${e}`).join("\n")}`
-  );
 }
