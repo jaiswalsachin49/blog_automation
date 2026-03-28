@@ -1,74 +1,74 @@
 import Groq from "groq-sdk";
 import { callGemini } from "./gemini";
 
-export async function callLLM(systemPrompt: string, userMessage: string, options: { json?: boolean, maxRetries?: number } = {}) {
-  // Groq is so fast we can afford a few retries, but we shouldn't hit 429s as easily
-  const { json = false, maxRetries = 3 } = options;
-  
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    throw new Error("GROQ_API_KEY environment variable is missing.");
-  }
-  
-  const groq = new Groq({ apiKey });
+/**
+ * Groq rate limits are PER MODEL. If llama-3.3-70b is exhausted,
+ * mixtral-8x7b or llama-3.1-8b might still have fresh quota.
+ */
+const GROQ_MODELS = [
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
+];
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const completion = await groq.chat.completions.create({
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage }
-        ],
-        model: "llama-3.3-70b-versatile",
-        temperature: 0.7,
-        max_completion_tokens: 8000,
-        response_format: json ? { type: "json_object" } : { type: "text" },
-      });
+export async function callLLM(
+  systemPrompt: string,
+  userMessage: string,
+  options: { json?: boolean } = {}
+) {
+  const { json = false } = options;
+  const errors: string[] = [];
 
-      const text = completion.choices[0]?.message?.content || "";
+  // ── Step 1: Try Groq with multiple models ─────────────────────────────
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    const groq = new Groq({ apiKey: groqKey });
 
-      if (json) {
-        // Groq guarantees JSON if response_format is set, but let's be safe
-        let cleaned = text.trim();
-        if (cleaned.startsWith("\`\`\`")) {
-          cleaned = cleaned.replace(/^\`\`\`(?:json)?\n?/, "").replace(/\n?\`\`\`$/, "");
+    for (const model of GROQ_MODELS) {
+      try {
+        console.log(`[LLM] Trying Groq model: ${model}`);
+
+        const completion = await groq.chat.completions.create({
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userMessage },
+          ],
+          model,
+          temperature: 0.7,
+          max_completion_tokens: 8000,
+          response_format: json ? { type: "json_object" } : { type: "text" },
+        });
+
+        const text = completion.choices[0]?.message?.content || "";
+
+        if (json) {
+          let cleaned = text.trim();
+          if (cleaned.startsWith("\`\`\`")) {
+            cleaned = cleaned.replace(/^\`\`\`(?:json)?\n?/, "").replace(/\n?\`\`\`$/, "");
+          }
+          return JSON.parse(cleaned);
         }
-        return JSON.parse(cleaned);
+
+        return text;
+      } catch (error: any) {
+        const msg = error.message?.substring(0, 100) || "Unknown error";
+        const is429 = error.status === 429 || msg.includes("429");
+        console.warn(`[LLM] Groq ${model}: ${is429 ? "RATE LIMITED" : msg}`);
+        errors.push(`Groq/${model}: ${is429 ? "rate limited" : msg}`);
+        // Try next model
       }
-
-      return text;
-    } catch (error: any) {
-      console.error(`Groq call attempt ${attempt}/${maxRetries} failed:`, error.message);
-
-      if (attempt === maxRetries) {
-        throw new Error(`Groq API failed after ${maxRetries} attempts: ${error.message}`);
-      }
-
-      let delay = Math.pow(2, attempt) * 1000;
-      
-      if (error.status === 429 || (error.message && error.message.includes("429")) || error.code === 'rate_limit_exceeded') {
-        console.warn("Groq rate limit hit (429)! Falling back to Gemini...");
-        
-        try {
-          return await callGemini(systemPrompt, userMessage, { json });
-        } catch (geminiError: any) {
-          console.error("Gemini fallback also failed:", geminiError.message);
-          // If Gemini fails, we will either wait for the retry timeout or throw
-        }
-        
-        const retryMatch = error.message.match(/Please try again in ([\d\.]+)s/i);
-        
-        if (retryMatch && retryMatch[1]) {
-          const requiredWaitSec = parseFloat(retryMatch[1]);
-          console.log(`API requested ${requiredWaitSec}s wait. Sleeping...`);
-          delay = (requiredWaitSec * 1000) + 1000;
-        } else {
-          delay = 10000 + (attempt * 2000); 
-        }
-      }
-
-      console.log(`Retrying attempt ${attempt + 1}/${maxRetries} in ${Math.round(delay/1000)}s...`);
-      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
+
+  // ── Step 2: Fallback to Gemini ─────────────────────────────────────────
+  try {
+    console.log("[LLM] All Groq models exhausted. Trying Gemini...");
+    return await callGemini(systemPrompt, userMessage, { json });
+  } catch (geminiError: any) {
+    errors.push(`Gemini: ${geminiError.message?.substring(0, 100)}`);
+  }
+
+  // ── Step 3: All failed ─────────────────────────────────────────────────
+  throw new Error(
+    `All LLM providers failed:\n${errors.map((e) => `  • ${e}`).join("\n")}`
+  );
 }

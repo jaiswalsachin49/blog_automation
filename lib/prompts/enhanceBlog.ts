@@ -8,11 +8,11 @@ You must surgically rewrite and enhance the blog draft specifically to address t
 
 CRITICAL INSTRUCTIONS:
 1. Fix all "critical_failures" and implement the "improvements" detailed in the scorecard.
-2. If the keyword density failed, gracefully inject or remove the primary keyword.
-3. If headers or structure failed, add the necessary H2s/H3s or format the intro for snippet readiness.
-4. If internal links are missing, inject them seamlessly.
+2. IF KEYWORD DENSITY FAILED (>1.8%): Remove overused keywords. For the entire article, the keyword should appear NO MORE THAN 6-8 TIMES total. Use pronouns and synonyms instead.
+3. IF WORD COUNT FAILED: Do NOT summarize. You MUST EXPAND the blog. Add detailed examples, new paragraphs, and deeper explanations to every H2 section. Ensure the blog is over 2000 words.
+4. IF INTERNAL LINKS FAILED: Inject exactly 4 internal links as [anchor text](/).
 5. Do NOT change the core meaning or rewrite parts of the blog that are already strong or pass the metrics.
-6. Return the full, enhanced markdown blog. Do NOT wrap it in JSON. Return pure Markdown text only.`;
+6. Return ONLY the full, enhanced Markdown blog. Do NOT include ANY conversational text before or after (like "Here is the improved draft" or "Fixed by..."). Start immediately with the <!-- meta: --> tag.`;
 
 export async function enhanceBlog(
   currentBlog: string,
@@ -45,7 +45,22 @@ CURRENT BLOG DRAFT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${currentBlog}
 
-Remember, return the strictly improved Markdown blog and nothing else!`;
+Remember, return the strictly improved Markdown blog and NOTHING ELSE! NO PREFIXES, NO SUFFIXES, NO EXPLANATIONS.`;
 
-  return (await callLLM(SYSTEM_PROMPT, userMessage, { json: false })) as string;
+  const result = (await callLLM(SYSTEM_PROMPT, userMessage, { json: false })) as string;
+  
+  // Try to clean up if the LLM still output conversational filler
+  let cleanResult = result.trim();
+  const metaMatch = cleanResult.match(/<!--\s*meta:/i);
+  if (metaMatch && metaMatch.index && metaMatch.index > 0) {
+    cleanResult = cleanResult.substring(metaMatch.index);
+  }
+  
+  // Cut off bottom notes
+  const noteMatch = cleanResult.match(/(?:Note:|Here are the changes:|Summary:|Enhanced Blog Draft|SEO Scorecard)/i);
+  if (noteMatch && noteMatch.index && noteMatch.index > cleanResult.length * 0.8) {
+     cleanResult = cleanResult.substring(0, noteMatch.index).trim();
+  }
+
+  return cleanResult;
 }
