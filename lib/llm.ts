@@ -1,4 +1,5 @@
 import Groq from "groq-sdk";
+import { callGemini } from "./gemini";
 
 export async function callLLM(systemPrompt: string, userMessage: string, options: { json?: boolean, maxRetries?: number } = {}) {
   // Groq is so fast we can afford a few retries, but we shouldn't hit 429s as easily
@@ -45,8 +46,15 @@ export async function callLLM(systemPrompt: string, userMessage: string, options
 
       let delay = Math.pow(2, attempt) * 1000;
       
-      if (error.status === 429 || (error.message && error.message.includes("429"))) {
-        console.log("Rate limit hit! Looking for explicit retry time...");
+      if (error.status === 429 || (error.message && error.message.includes("429")) || error.code === 'rate_limit_exceeded') {
+        console.warn("Groq rate limit hit (429)! Falling back to Gemini...");
+        
+        try {
+          return await callGemini(systemPrompt, userMessage, { json });
+        } catch (geminiError: any) {
+          console.error("Gemini fallback also failed:", geminiError.message);
+          // If Gemini fails, we will either wait for the retry timeout or throw
+        }
         
         const retryMatch = error.message.match(/Please try again in ([\d\.]+)s/i);
         
