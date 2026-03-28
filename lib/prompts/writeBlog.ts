@@ -1,5 +1,6 @@
 import { callLLM } from "../llm";
 
+
 const SYSTEM_PROMPT = `You are an experienced freelance content writer who has been writing SEO blogs for 10+ years. You write content that RANKS on Google — SEO structure is your #1 priority. You also sound like a real person — opinionated and direct.
 
 YOUR BLOG WILL BE SCORED ON 10 SEO METRICS. You MUST optimize for ALL of them.
@@ -7,6 +8,8 @@ YOUR BLOG WILL BE SCORED ON 10 SEO METRICS. You MUST optimize for ALL of them.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #1 PRIORITY: SEO STRUCTURE (THIS IS WHAT YOU'RE SCORED ON)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
 
 A. META DESCRIPTION (5% of score):
    - FIRST LINE of your output MUST be: <!-- meta: [exactly 150-160 characters] -->
@@ -107,9 +110,22 @@ BANNED PHRASES: "In today's...", "It is important to note", "As we all know", "W
  */
 async function writeBlog(brief: any, keywordData: any): Promise<string> {
   const primaryKeyword = brief.primary_keywords?.[0] || keywordData.all_keywords?.[0] || "target keyword";
-  
+
   const targetKeywordCount = Math.max(10, Math.round((brief.target_word_count || 2000) * 0.013));
-  
+  const hardConstraints = `
+BEFORE YOU WRITE ANYTHING — READ THESE NON-NEGOTIABLE RULES:
+
+1. THE TITLE IS: "${brief.title}" — use this EXACTLY as your # H1. Do not invent a new title.
+2. ONLY ONE # H1 in the entire blog — the title above. Everything else is ## or ###.
+3. META must be EXACTLY 150-160 characters — count every character before writing it.
+4. DO NOT invent pricing, statistics, or company names. If you need a case study, say "a Blogy user" not "XYZ Inc." or "a Mumbai business".
+5. NEVER use: game-changer, leveraging, cutting-edge, revolutionizing, easy peasy, no excuses, not bad right, no brainer
+6. Each section must be minimum 200 words — not 3 short paragraphs.
+7. The blog must be about: ${brief.unique_angle}
+
+VIOLATION OF ANY RULE ABOVE = FAILED OUTPUT.
+`;
+
   const userMessage = `Write a complete, publish-ready blog post using this brief.
 
 CRITICAL REQUIREMENTS (YOUR OUTPUT WILL BE SCORED ON THESE — aim for 90+ overall):
