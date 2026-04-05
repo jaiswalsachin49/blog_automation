@@ -300,6 +300,7 @@ BRIEF REQUIREMENTS REMINDER
 - Include writing_warnings specific to this topic
 - FAQ questions must be real search queries people type`;
 
+  // Brief generation has a massive system prompt + full data (~6K tokens).
   const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: true });
   return result as BlogBrief;
 }

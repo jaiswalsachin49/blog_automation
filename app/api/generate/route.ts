@@ -141,9 +141,14 @@ export async function POST(req: NextRequest) {
     } catch (error: any) {
       console.error('Pipeline error:', error);
       if (error.message !== 'Stream closed') {
+        // Extract a clean error message
+        let errorMsg = error.message || 'An unexpected error occurred during generation';
+        if (errorMsg.includes('rate_limit') || errorMsg.includes('429') || errorMsg.includes('Request too large')) {
+          errorMsg = 'AI provider rate limit hit. Please wait 60 seconds and try again.';
+        }
         try {
           await sendSSE('error', {
-            message: error.message || 'An unexpected error occurred during generation',
+            message: errorMsg,
             stage: 'unknown',
             duration: Date.now() - startTime,
           });

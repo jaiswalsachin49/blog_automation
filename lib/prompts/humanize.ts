@@ -105,6 +105,7 @@ PRIORITY #2 — HUMANIZE THE BODY TEXT:
 BLOG TO HUMANIZE:
 ${blogMarkdown}`;
 
+  // Humanize sends full blog as input (~5K+ tokens).
   const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: false }) as string;
   return result;
 }
