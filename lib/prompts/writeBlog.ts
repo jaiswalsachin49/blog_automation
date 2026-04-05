@@ -207,6 +207,7 @@ ${keywordData.all_keywords.join(", ")}
 
 Now write the complete blog post in Markdown. Start with the <!-- meta: --> comment on the very first line.`;
 
+  // writeBlog is the heaviest stage (~15K+ tokens).
   const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: false });
   return result as string;
 }

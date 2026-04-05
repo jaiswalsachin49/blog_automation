@@ -339,6 +339,7 @@ BLOG CONTENT
 
 ${blog}`;
 
+  // seoScore sends full blog + metrics (~8K+ tokens).
   const result = await callLLM(SYSTEM_PROMPT, userMessage, { json: true });
   return result as SEOScorecard;
 }
